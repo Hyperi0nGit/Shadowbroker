@@ -226,17 +226,17 @@ def test_fetch_uap_sightings_succeeds_when_fallback_returns_data(monkeypatch):
     assert canary_calls == [], "canary should not trip when fallback supplies data"
 
 
-def test_uap_scheduler_runs_daily():
-    """UAP layer refreshes daily so the rolling ~60-day window stays current."""
+def test_uap_scheduler_runs_weekly():
+    """UAP layer refreshes weekly so each install pulls live NUFORC on a steady cadence."""
     from services import data_fetcher
 
     with open(data_fetcher.__file__, "r", encoding="utf-8") as f:
         text = f.read()
 
-    assert "uap_sightings_daily" in text
-    idx = text.index("uap_sightings_daily")
-    block = text[max(0, idx - 600) : idx + 80]
-    assert 'day_of_week="mon"' not in block
+    assert "uap_sightings_weekly" in text
+    idx = text.index("uap_sightings_weekly")
+    block = text[max(0, idx - 600) : idx + 120]
+    assert 'day_of_week="mon"' in block
 
 
 def test_uap_cache_rejects_stale_rows_on_load(tmp_path, monkeypatch):

@@ -51,6 +51,14 @@ Shadowbroker is **self-hosted**: each install uses its own backend egress IP. Th
 - **Env:** `SHADOWBROKER_ENABLE_LIVEUAMAP_SCRAPER=true|false` overrides UI on all platforms
 - **Honesty:** Backend-only; no browser-direct LiveUAMap from end users. Stealth remains a functional tradeoff for Turnstile; disable layer or env if unacceptable
 
+## UAP sightings (NUFORC map layer)
+
+- **Window:** last **60 days** (`NUFORC_RECENT_DAYS`, ~2 months) from **live** nuforc.org
+- **Cadence:** **Weekly** (Monday 12:00 UTC) per install; typical yield **~400–500** geocoded pins
+- **Between weeks:** `backend/data/nuforc_recent_sightings.json` (7-day TTL) so restarts do not wipe the layer
+- **Immediate pull:** admin `GET /api/refresh` on that install
+- **Not used for map pins:** stale Hugging Face mirror (frozen ~2023) unless live is down and mirror happens to have in-window rows
+
 ---
 
 ## CCTV proxy Referer / Origin (#349)

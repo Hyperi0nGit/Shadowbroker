@@ -701,6 +701,12 @@ _NUFORC_GEOCODE_WORKERS = max(1, int(os.environ.get("NUFORC_GEOCODE_WORKERS", "1
 # practice, so a 0.3s spacing keeps us well under any soft throttle while
 # still rebuilding a full 12-month window in ~10 minutes.
 _NUFORC_GEOCODE_SPACING_S = float(os.environ.get("NUFORC_GEOCODE_SPACING_S", "0.3"))
+# Disk cache TTL — match the weekly scheduler so restarts between fetches still
+# serve the same rolling 60-day snapshot without hammering nuforc.org daily.
+_NUFORC_CACHE_TTL_S = max(
+    3600,
+    int(os.environ.get("NUFORC_CACHE_TTL_HOURS", "168")) * 3600,
+)
 _NUFORC_DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
 _NUFORC_SIGHTINGS_CACHE_FILE = _NUFORC_DATA_DIR / "nuforc_recent_sightings.json"
 _NUFORC_LOCATION_CACHE_FILE = _NUFORC_DATA_DIR / "nuforc_location_cache.json"
@@ -832,7 +838,7 @@ def _load_nuforc_sightings_cache(*, force_refresh: bool = False) -> list[dict] |
         built_dt = datetime.fromisoformat(built) if built else None
         if built_dt is None:
             return None
-        if (datetime.utcnow() - built_dt).total_seconds() > 86400:
+        if (datetime.utcnow() - built_dt).total_seconds() > _NUFORC_CACHE_TTL_S:
             return None
         if raw.get("cutoff_days") != _NUFORC_RECENT_DAYS:
             logger.info(
@@ -1646,11 +1652,12 @@ def _build_uap_sightings_from_hf_mirror() -> list[dict]:
 
 @with_retry(max_retries=1, base_delay=5)
 def fetch_uap_sightings(*, force_refresh: bool = False):
-    """Fetch last-year UAP sightings from NUFORC.
+    """Fetch rolling-window UAP sightings from live NUFORC.
 
-    Startup reads the cached daily snapshot when it is still fresh. The daily
-    scheduler forces a rebuild so this layer updates once per day instead of
-    churning continuously.
+    Startup reads the cached snapshot when still within NUFORC_CACHE_TTL_HOURS
+    (default 168h / one week). The weekly scheduler forces a rebuild so every
+    install refreshes the same ~60-day layer without daily load on nuforc.org.
+    Operators can also POST /api/refresh (admin) to pull immediately.
     """
     from services.fetchers._store import is_any_active
 

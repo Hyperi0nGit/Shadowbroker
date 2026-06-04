@@ -993,17 +993,19 @@ def start_scheduler():
         misfire_grace_time=600,
     )
 
-    # UAP sightings (NUFORC) — daily at 12:00 UTC. Rolling ~60-day window from
-    # live nuforc.org; disk cache is re-validated on every read.
+    # UAP sightings (NUFORC) — weekly Mondays 12:00 UTC. Rolling ~60-day window;
+    # each self-hosted install pulls live nuforc.org so operators see current
+    # reports (typically ~400–500 mappable pins). Disk cache TTL defaults to 7d.
     _scheduler.add_job(
         lambda: _run_task_with_health(
             lambda: fetch_uap_sightings(force_refresh=True),
             "fetch_uap_sightings",
         ),
         "cron",
+        day_of_week="mon",
         hour=12,
         minute=0,
-        id="uap_sightings_daily",
+        id="uap_sightings_weekly",
         max_instances=1,
         misfire_grace_time=3600,
     )
