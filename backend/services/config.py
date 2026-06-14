@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     MESH_MQTT_INCLUDE_DEFAULT_ROOTS: bool = True
     MESH_RNS_ENABLED: bool = False
     MESH_ARTI_ENABLED: bool = False
+    # When true, trust wormhole_status.json ready bit if the child process is
+    # alive — avoids transport-tier flapping when /api/health probes time out
+    # under Tor load (common during live DM E2E).
+    MESH_WORMHOLE_TRUST_FILE_READY: bool = False
     MESH_ARTI_SOCKS_PORT: int = 9050
     MESH_RELAY_PEERS: str = ""
     MESH_PUBLIC_PEER_URL: str = ""

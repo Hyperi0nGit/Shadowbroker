@@ -308,6 +308,10 @@ class WormholeDmDecryptRequest(BaseModel):
     session_welcome: str | None = None
 
 
+class WormholeDmMlsKeyPackageRequest(BaseModel):
+    alias: str
+
+
 class WormholeDmResetRequest(BaseModel):
     peer_id: str | None = None
 
@@ -1228,6 +1232,23 @@ async def api_wormhole_dm_decrypt(request: Request, body: WormholeDmDecryptReque
     )
 
 
+@router.post("/api/wormhole/dm/mls-key-package", dependencies=[Depends(require_admin)])
+@limiter.limit("60/minute")
+async def api_wormhole_dm_mls_key_package(request: Request, body: WormholeDmMlsKeyPackageRequest):
+    from services.mesh.mesh_dm_mls import export_dm_key_package_for_alias
+
+    return export_dm_key_package_for_alias(str(body.alias or "").strip())
+
+
+@router.post("/api/wormhole/dm/mls-reset", dependencies=[Depends(require_admin)])
+@limiter.limit("30/minute")
+async def api_wormhole_dm_mls_reset(request: Request):
+    from services.mesh.mesh_dm_mls import reset_dm_mls_state
+
+    reset_dm_mls_state(clear_privacy_core=True, clear_persistence=True)
+    return {"ok": True}
+
+
 @router.post("/api/wormhole/dm/reset", dependencies=[Depends(require_admin)])
 @limiter.limit("30/minute")
 async def api_wormhole_dm_reset(request: Request, body: WormholeDmResetRequest):
@@ -1324,6 +1345,25 @@ async def api_wormhole_status(request: Request):
     import main as _m
 
     return await _m.api_wormhole_status(request)
+
+
+@router.get(
+    "/api/wormhole/private-delivery/{item_id}",
+    dependencies=[Depends(require_local_operator)],
+)
+@limiter.limit("120/minute")
+async def api_wormhole_private_delivery_item(request: Request, item_id: str):
+    from services.mesh.mesh_metadata_exposure import metadata_exposure_for_request
+    from services.mesh.mesh_private_outbox import private_delivery_outbox
+
+    exposure = metadata_exposure_for_request(
+        request,
+        authenticated=True,
+    )
+    item = private_delivery_outbox.get_item(item_id, exposure=exposure)
+    if item is None:
+        raise HTTPException(status_code=404, detail="private_delivery_item_not_found")
+    return {"ok": True, "item": item}
 
 
 @router.post("/api/wormhole/private-delivery/{item_id}/action", dependencies=[Depends(require_local_operator)])

@@ -140,10 +140,24 @@ def transport_tier_from_state(state: dict[str, Any] | None) -> str:
     snapshot = state or {}
     if not bool(snapshot.get("configured")):
         return "public_degraded"
-    if not bool(snapshot.get("ready")):
-        return "public_degraded"
     arti_ready = bool(snapshot.get("arti_ready"))
     rns_ready = bool(snapshot.get("rns_ready"))
+    running = bool(snapshot.get("running"))
+    transport_usable = bool(snapshot.get("ready"))
+    if not transport_usable:
+        try:
+            from services.config import get_settings
+
+            if (
+                bool(getattr(get_settings(), "MESH_WORMHOLE_TRUST_FILE_READY", False))
+                and running
+                and arti_ready
+            ):
+                transport_usable = True
+        except Exception:
+            pass
+    if not transport_usable:
+        return "public_degraded"
     if arti_ready and rns_ready:
         return "private_strong"
     if arti_ready or rns_ready:

@@ -863,6 +863,7 @@ _ROUTE_TRANSPORT_POLICY: dict[tuple[str, str], RouteTransportPolicy] = {
     # ── Wormhole DM (strong) ──────────────────────────────────────────
     ("POST", "/api/wormhole/dm/compose"): _local_only_route_policy("private_control_only"),
     ("POST", "/api/wormhole/dm/decrypt"): _local_only_route_policy("private_control_only"),
+    ("POST", "/api/wormhole/dm/mls-key-package"): _local_only_route_policy("private_control_only"),
     ("POST", "/api/wormhole/dm/register-key"): _local_only_route_policy("private_control_only"),
     ("POST", "/api/wormhole/dm/prekey/register"): _local_only_route_policy("private_control_only"),
     ("POST", "/api/wormhole/dm/bootstrap-encrypt"): _local_only_route_policy("private_control_only"),

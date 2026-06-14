@@ -65,6 +65,7 @@ _WORMHOLE_ENV_EXPLICIT = {
     "CORS_ORIGINS",
     "PUBLIC_API_KEY",
     "PRIVACY_CORE_ALLOWED_SHA256",
+    "PRIVACY_CORE_DEV_OVERRIDE",
     "PRIVACY_CORE_LIB",
     "PRIVACY_CORE_MIN_VERSION",
 }
@@ -289,6 +290,23 @@ def _terminate_pid(pid: int, *, timeout_s: float = 5.0) -> None:
             pass
 
 
+def _trust_wormhole_file_ready(status: dict[str, Any] | None = None) -> bool:
+    try:
+        from services.config import get_settings
+
+        if not bool(getattr(get_settings(), "MESH_WORMHOLE_TRUST_FILE_READY", False)):
+            return False
+    except Exception:
+        return False
+    snapshot = status if status is not None else read_wormhole_status()
+    if not bool(snapshot.get("ready")):
+        return False
+    started_at = int(snapshot.get("started_at", 0) or 0)
+    if started_at <= 0:
+        return False
+    return (time.time() - started_at) < 3600
+
+
 def _probe_ready(timeout_s: float = 1.5) -> bool:
     try:
         with urlopen(f"http://{WORMHOLE_HOST}:{WORMHOLE_PORT}/api/health", timeout=timeout_s) as resp:
@@ -337,7 +355,10 @@ def _current_runtime_state() -> dict[str, Any]:
         if not running and _probe_ready(timeout_s=0.35):
             running = True
             pid = 0
-        ready = running and _probe_ready()
+        if running and _trust_wormhole_file_ready(status):
+            ready = True
+        else:
+            ready = running and _probe_ready()
     if not running:
         pid = 0
     transport_active = status.get("transport_active", "") if ready else ""
@@ -518,7 +539,8 @@ def connect_wormhole(*, reason: str = "connect") -> dict[str, Any]:
             proxy=str(settings.get("socks_proxy", "")),
         )
 
-        deadline = time.monotonic() + 20.0
+        startup_deadline_s = float(os.environ.get("WORMHOLE_STARTUP_DEADLINE_S", "60") or 60)
+        deadline = time.monotonic() + max(20.0, startup_deadline_s)
         while time.monotonic() < deadline:
             if process.poll() is not None:
                 err = f"Wormhole exited with code {process.returncode}."

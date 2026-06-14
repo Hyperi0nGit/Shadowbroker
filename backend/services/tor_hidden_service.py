@@ -388,11 +388,17 @@ class TorHiddenService:
                 except OSError:
                     pass
 
+            from services.config import get_settings
+
+            settings = get_settings()
+            socks_port_line = ""
+            if not bool(getattr(settings, "MESH_ARTI_ENABLED", False)):
+                socks_port_line = "SocksPort 9050\n"
             torrc_content = (
                 f"DataDirectory {TOR_DATA_DIR.as_posix()}\n"
                 f"HiddenServiceDir {hidden_service_dir.as_posix()}\n"
                 f"HiddenServicePort {target_port} 127.0.0.1:{target_port}\n"
-                "SocksPort 9050\n"
+                f"{socks_port_line}"
                 "Log notice stderr\n"
             )
             TORRC_PATH.write_text(torrc_content, encoding="utf-8")

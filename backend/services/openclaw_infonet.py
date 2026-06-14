@@ -424,6 +424,7 @@ def _submit_signed_dm_send(
     session_welcome: str = "",
     connect_intent: str = "",
     lookup_peer_url: str = "",
+    peer_dh_pub: str = "",
 ) -> dict[str, Any]:
     import main as main_mod
     from services.mesh.mesh_protocol import (
@@ -454,6 +455,26 @@ def _submit_signed_dm_send(
     }
     if session_welcome:
         dm_payload["session_welcome"] = str(session_welcome)
+
+    try:
+        from services.config import get_settings
+        from services.mesh.mesh_wormhole_seal import build_sender_seal
+
+        if (
+            delivery == "shared"
+            and bool(get_settings().MESH_DM_REQUIRE_SENDER_SEAL_SHARED)
+            and not str(dm_payload.get("sender_seal", "") or "").strip()
+        ):
+            seal = build_sender_seal(
+                recipient_id=recipient,
+                recipient_dh_pub=str(peer_dh_pub or ""),
+                msg_id=msg_id,
+                timestamp=timestamp,
+            )
+            if seal.get("ok"):
+                dm_payload["sender_seal"] = str(seal.get("sender_seal") or "")
+    except Exception:
+        pass
 
     ok_payload, reason = validate_event_payload("dm_message", dm_payload)
     if not ok_payload:
@@ -490,6 +511,7 @@ def _submit_signed_dm_send(
         "session_welcome": str(session_welcome or ""),
         "msg_id": msg_id,
         "timestamp": timestamp,
+        "sender_seal": str(dm_payload.get("sender_seal") or ""),
         "public_key": str(signed.get("public_key") or ""),
         "public_key_algo": str(signed.get("public_key_algo") or ""),
         "signature": str(signed.get("signature") or ""),
@@ -618,6 +640,8 @@ def send_contact_accept(
     *,
     peer_id: str,
     peer_dh_pub: str = "",
+    lookup_token: str = "",
+    lookup_peer_url: str = "",
 ) -> dict[str, Any]:
     """Accept a pending contact request and open the shared DM lane."""
     from services.mesh.mesh_wormhole_dead_drop import build_contact_accept, issue_pairwise_dm_alias
@@ -627,9 +651,15 @@ def send_contact_accept(
     if not peer:
         return {"ok": False, "detail": "peer_id required"}
 
+    token = str(lookup_token or "").strip()
+    preferred_peer = str(lookup_peer_url or "").strip().rstrip("/")
     dh_pub = str(peer_dh_pub or "").strip()
     if not dh_pub:
-        bundle = fetch_dm_prekey_bundle(agent_id=peer)
+        bundle = fetch_dm_prekey_bundle(
+            agent_id=peer if not token else "",
+            lookup_token=token,
+            lookup_peer_urls=[preferred_peer] if preferred_peer else None,
+        )
         if not bundle.get("ok"):
             return bundle
         dh_pub = str(bundle.get("dh_pub_key") or "").strip()
@@ -644,7 +674,7 @@ def send_contact_accept(
         return {"ok": False, "detail": "shared_alias unavailable"}
 
     accept_plain = build_contact_accept(shared_alias=shared_alias)
-    encrypted = bootstrap_encrypt_for_peer(peer, accept_plain)
+    encrypted = bootstrap_encrypt_for_peer(peer, accept_plain, lookup_token=token)
     if not encrypted.get("ok"):
         return encrypted
 
@@ -655,6 +685,7 @@ def send_contact_accept(
         ciphertext=str(encrypted.get("result") or ""),
         payload_format="mls1",
         connect_intent="contact_accept",
+        lookup_peer_url=preferred_peer,
     )
     if isinstance(sent, dict):
         sent.setdefault("shared_alias", shared_alias)

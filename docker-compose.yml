@@ -41,6 +41,9 @@ services:
       # Tor/Arti SOCKS transport for private .onion Infonet sync.
       - MESH_ARTI_ENABLED=${MESH_ARTI_ENABLED:-false}
       - MESH_ARTI_SOCKS_PORT=${MESH_ARTI_SOCKS_PORT:-9050}
+      # Lean Infonet participant (meshnode.sh equivalent). Skips global OSINT fetchers.
+      - MESH_ONLY=${MESH_ONLY:-}
+      - SHADOWBROKER_MESH_NODE_RUNTIME=${SHADOWBROKER_MESH_NODE_RUNTIME:-}
       # Operator-trusted sync/push peers. Leave empty unless you control the peer secret on both sides.
       - MESH_RELAY_PEERS=${MESH_RELAY_PEERS:-}
       - MESH_PUBLIC_PEER_URL=${MESH_PUBLIC_PEER_URL:-}

@@ -1072,6 +1072,10 @@ def _release_gate_status(
 
 
 def _validate_privacy_core_startup() -> None:
+    # The wormhole child agent reuses this app on WORMHOLE_PORT; the parent
+    # backend already validated privacy-core before spawning it.
+    if os.environ.get("WORMHOLE_PORT"):
+        return
     from services.privacy_core_attestation import validate_privacy_core_startup
 
     validate_privacy_core_startup()
@@ -1625,6 +1629,12 @@ def _hydrate_dm_relay_from_chain(events: list[dict]) -> int:
             f"hashchain-dm-sender|{event_id}|{canonical.get('node_id', '')}".encode("utf-8")
         ).hexdigest()
         try:
+            from services.mesh.mesh_dm_connect_delivery import relay_push_peer_urls_for_payload
+
+            replication_urls = relay_push_peer_urls_for_payload(dict(payload))
+        except Exception:
+            replication_urls = []
+        try:
             result = dm_relay.deposit(
                 sender_id=str(canonical.get("node_id", "") or ""),
                 raw_sender_id=str(canonical.get("node_id", "") or ""),
@@ -1637,6 +1647,7 @@ def _hydrate_dm_relay_from_chain(events: list[dict]) -> int:
                 sender_token_hash=sender_token_hash,
                 payload_format=str(payload.get("format", "dm1") or "dm1"),
                 session_welcome=str(payload.get("session_welcome", "") or ""),
+                replication_peer_urls=replication_urls,
             )
             if result.get("ok"):
                 count += 1
@@ -7192,6 +7203,10 @@ async def _dm_send_from_signed_request(request: Request):
                 "format": payload_format,
             }
         chain_payload["transport_lock"] = "private_strong"
+        if connect_intent:
+            chain_payload["connect_intent"] = connect_intent
+        if lookup_peer_url:
+            chain_payload["lookup_peer_url"] = lookup_peer_url
         chain_event = infonet.append_private_dm_message(
             node_id=sender_id,
             payload=chain_payload,
@@ -7207,7 +7222,8 @@ async def _dm_send_from_signed_request(request: Request):
             or PROTOCOL_VERSION,
             timestamp=float(timestamp or time.time()),
         )
-        _hydrate_dm_relay_from_chain([chain_event])
+        # Relay deposit is deferred to the private release worker so scoped
+        # connect traffic can synchronously replicate to lookup_peer_url once.
         hashchain_spool = {
             "ok": True,
             "event_id": str(chain_event.get("event_id", "") or ""),
@@ -9663,6 +9679,43 @@ def _get_contact_trust_level(peer_id: str) -> str:
         return "unpinned"
 
 
+def _compose_bundle_matches_invite_pin(peer_id: str, bundle: dict[str, Any]) -> bool:
+    """True when an invite-pinned contact already matches the supplied bundle."""
+    try:
+        from services.mesh.mesh_wormhole_contacts import list_wormhole_dm_contacts
+        from services.mesh.mesh_wormhole_prekey import trust_fingerprint_for_bundle_record
+
+        contact = dict(list_wormhole_dm_contacts().get(str(peer_id or "").strip()) or {})
+        if str(contact.get("trust_level", "") or "") != "invite_pinned":
+            return False
+        pinned = str(
+            contact.get("remotePrekeyFingerprint", "")
+            or contact.get("invitePinnedTrustFingerprint", "")
+            or ""
+        ).strip().lower()
+        if not pinned:
+            return False
+        bundle_record = dict(bundle or {})
+        bundle_payload = dict(bundle_record.get("bundle") or bundle_record)
+        candidate = str(bundle_record.get("trust_fingerprint", "") or "").strip().lower()
+        if not candidate:
+            candidate = str(
+                trust_fingerprint_for_bundle_record(
+                    {
+                        "agent_id": str(peer_id or "").strip(),
+                        "bundle": bundle_payload,
+                        "public_key": str(bundle_record.get("public_key", "") or ""),
+                        "public_key_algo": str(bundle_record.get("public_key_algo", "") or "Ed25519"),
+                        "protocol_version": str(bundle_record.get("protocol_version", "") or ""),
+                    }
+                )
+                or ""
+            ).strip().lower()
+        return bool(candidate and pinned == candidate)
+    except Exception:
+        return False
+
+
 def compose_wormhole_dm(
     *,
     peer_id: str,
@@ -9727,8 +9780,11 @@ def compose_wormhole_dm(
             bundle = fetched_bundle
     if bundle and str(peer_id or "").strip():
         try:
-            trust_state = observe_remote_prekey_bundle(str(peer_id or "").strip(), bundle)
-            _compose_trust_level = str(trust_state.get("trust_level", "") or "")
+            if _compose_bundle_matches_invite_pin(str(peer_id or "").strip(), bundle):
+                _compose_trust_level = "invite_pinned"
+            else:
+                trust_state = observe_remote_prekey_bundle(str(peer_id or "").strip(), bundle)
+                _compose_trust_level = str(trust_state.get("trust_level", "") or "")
             from services.mesh.mesh_wormhole_contacts import verified_first_contact_requirement
 
             verified_first_contact = verified_first_contact_requirement(
@@ -9909,21 +9965,11 @@ def decrypt_wormhole_dm_envelope(
         if not has_session.get("ok"):
             return has_session
         if not has_session.get("exists"):
-            local_dh_secret = ""
-            local_identity_alias = ""
-            try:
-                local_identity = read_wormhole_identity()
-                local_dh_secret = str(local_identity.get("dh_private_key", "") or "")
-                local_identity_alias = str(local_identity.get("node_id", "") or "")
-            except Exception:
-                local_dh_secret = ""
-                local_identity_alias = ""
             ensured = ensure_mls_dm_session(
                 resolved_local,
                 resolved_remote,
                 str(session_welcome or ""),
-                local_dh_secret=local_dh_secret,
-                identity_alias=local_identity_alias,
+                identity_alias=resolved_local,
             )
             if not ensured.get("ok"):
                 return ensured
